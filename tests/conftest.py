@@ -21,7 +21,9 @@ from xonsh.built_ins import (
 from xonsh.execer import Execer
 from xonsh.jobs import tasks
 from xonsh.events import events
+from xonsh.parser import Parser
 from xonsh.platform import ON_WINDOWS
+from xonsh.built_ins import load_builtins
 
 from tools import DummyShell, sp, DummyCommandsCache, DummyEnv, DummyHistory
 
@@ -33,54 +35,31 @@ def source_path():
     return os.path.dirname(pwd)
 
 
-def ensure_attached_session(monkeypatch, session):
-    for i in range(1, 11):
+@pytest.fixture
+def xonsh_session(monkeypatch):
+    session = XonshSession()
+    monkeypatch.setattr(builtins, '__xonsh__', session, raising=False)
+    return session
 
-        # next try to monkey patch with raising.
-        try:
-            monkeypatch.setattr(builtins, "__xonsh__", session, raising=True)
-        except AttributeError:
-            pass
-        if hasattr(builtins, "__xonsh__"):
-            break
-        # first try to monkey patch without raising.
-        try:
-            monkeypatch.setattr(builtins, "__xonsh__", session, raising=False)
-        except AttributeError:
-            pass
-        if hasattr(builtins, "__xonsh__"):
-            break
-        # now just try to apply it
-        builtins.__xonsh__ = session
-        if hasattr(builtins, "__xonsh__"):
-            break
-        # I have no idea why pytest fails to assign into the builtins module
-        # sometimes, but the following globals trick seems to work -scopatz
-        globals()["__builtins__"]["__xonsh__"] = session
-        if hasattr(builtins, "__xonsh__"):
-            break
-    else:
-        raise RuntimeError(
-            "Could not attach xonsh session to builtins " "after many tries!"
-        )
+
+@pytest.fixture(scope='session')
+def xonsh_parser():
+    """Get the a reusable parser for Execer."""
+    return Parser()
 
 
 @pytest.fixture
-def xonsh_execer(monkeypatch):
+def xonsh_execer(xonsh_session, xonsh_parser, monkeypatch):
     """Initiate the Execer with a mocked nop `load_builtins`"""
-    monkeypatch.setattr(
-        "xonsh.built_ins.load_builtins.__code__",
-        (lambda *args, **kwargs: None).__code__,
-    )
-    added_session = False
-    if not hasattr(builtins, "__xonsh__"):
-        added_session = True
-        ensure_attached_session(monkeypatch, XonshSession())
+
+    # Make sure Execer will act normally inside tests (like in test_imphooks.py)
+    _load_builtins, _parser_new = load_builtins.__code__, Parser.__new__
+    load_builtins.__code__ = (lambda *args, **kwargs: None).__code__
+    Parser.__new__ = lambda *args, **kwargs: xonsh_parser
     execer = Execer(unload=False)
-    builtins.__xonsh__.execer = execer
-    yield execer
-    if added_session:
-        monkeypatch.delattr(builtins, "__xonsh__", raising=False)
+    load_builtins.__code__, Parser.__new__ = _load_builtins, _parser_new
+    xonsh_session.execer = execer
+    return execer
 
 
 @pytest.fixture
@@ -102,59 +81,51 @@ def xonsh_events():
 
 
 @pytest.fixture
-def xonsh_builtins(monkeypatch, xonsh_events):
+def xonsh_builtins(xonsh_session, xonsh_execer, xonsh_events, monkeypatch):
     """Mock out most of the builtins xonsh attributes."""
-    old_builtins = set(dir(builtins))
-    execer = getattr(getattr(builtins, "__xonsh__", None), "execer", None)
-    session = XonshSession(execer=execer, ctx={})
-    ensure_attached_session(monkeypatch, session)
-    builtins.__xonsh__.env = DummyEnv()
+    xonsh_session.env = DummyEnv()
     if ON_WINDOWS:
-        builtins.__xonsh__.env["PATHEXT"] = [".EXE", ".BAT", ".CMD"]
-    builtins.__xonsh__.shell = DummyShell()
-    builtins.__xonsh__.help = lambda x: x
-    builtins.__xonsh__.glob = glob.glob
-    builtins.__xonsh__.exit = False
-    builtins.__xonsh__.superhelp = lambda x: x
-    builtins.__xonsh__.pathsearch = pathsearch
-    builtins.__xonsh__.globsearch = globsearch
-    builtins.__xonsh__.regexsearch = regexsearch
-    builtins.__xonsh__.regexpath = lambda x: []
-    builtins.__xonsh__.expand_path = lambda x: x
-    builtins.__xonsh__.subproc_captured = sp
-    builtins.__xonsh__.subproc_uncaptured = sp
-    builtins.__xonsh__.stdout_uncaptured = None
-    builtins.__xonsh__.stderr_uncaptured = None
-    builtins.__xonsh__.ensure_list_of_strs = ensure_list_of_strs
-    builtins.__xonsh__.commands_cache = DummyCommandsCache()
-    builtins.__xonsh__.all_jobs = {}
-    builtins.__xonsh__.list_of_strs_or_callables = list_of_strs_or_callables
-    builtins.__xonsh__.list_of_list_of_strs_outer_product = (
+        xonsh_session.env["PATHEXT"] = [".EXE", ".BAT", ".CMD"]
+    xonsh_session.shell = DummyShell()
+    xonsh_session.help = lambda x: x
+    xonsh_session.glob = glob.glob
+    xonsh_session.exit = False
+    xonsh_session.superhelp = lambda x: x
+    xonsh_session.pathsearch = pathsearch
+    xonsh_session.globsearch = globsearch
+    xonsh_session.regexsearch = regexsearch
+    xonsh_session.regexpath = lambda x: []
+    xonsh_session.expand_path = lambda x: x
+    xonsh_session.subproc_captured = sp
+    xonsh_session.subproc_uncaptured = sp
+    xonsh_session.stdout_uncaptured = None
+    xonsh_session.stderr_uncaptured = None
+    xonsh_session.ensure_list_of_strs = ensure_list_of_strs
+    xonsh_session.commands_cache = DummyCommandsCache()
+    xonsh_session.all_jobs = {}
+    xonsh_session.list_of_strs_or_callables = list_of_strs_or_callables
+    xonsh_session.list_of_list_of_strs_outer_product = (
         list_of_list_of_strs_outer_product
     )
-    builtins.__xonsh__.history = DummyHistory()
-    builtins.__xonsh__.subproc_captured_stdout = sp
-    builtins.__xonsh__.subproc_captured_inject = sp
-    builtins.__xonsh__.subproc_captured_object = sp
-    builtins.__xonsh__.subproc_captured_hiddenobject = sp
-    builtins.__xonsh__.enter_macro = enter_macro
-    builtins.__xonsh__.completers = None
-    builtins.__xonsh__.call_macro = call_macro
-    builtins.__xonsh__.enter_macro = enter_macro
-    builtins.__xonsh__.path_literal = path_literal
-    builtins.__xonsh__.builtins = _BuiltIns(execer=execer)
-    builtins.evalx = eval
-    builtins.execx = None
-    builtins.compilex = None
-    builtins.aliases = {}
+    xonsh_session.history = DummyHistory()
+    xonsh_session.subproc_captured_stdout = sp
+    xonsh_session.subproc_captured_inject = sp
+    xonsh_session.subproc_captured_object = sp
+    xonsh_session.subproc_captured_hiddenobject = sp
+    xonsh_session.enter_macro = enter_macro
+    xonsh_session.completers = None
+    xonsh_session.call_macro = call_macro
+    xonsh_session.enter_macro = enter_macro
+    xonsh_session.path_literal = path_literal
+    xonsh_session.builtins = _BuiltIns(execer=xonsh_execer)
+    monkeypatch.setattr(builtins, 'evalx', eval, raising=False)
+    monkeypatch.setattr(builtins, 'execx', None, raising=False)
+    monkeypatch.setattr(builtins, 'compilex', None, raising=False)
+    monkeypatch.setattr(builtins, 'aliases', {}, raising=False)
     # Unlike all the other stuff, this has to refer to the "real" one because all modules that would
     # be firing events on the global instance.
     builtins.events = xonsh_events
     yield builtins
-    monkeypatch.delattr(builtins, "__xonsh__", raising=False)
-    for attr in set(dir(builtins)) - old_builtins:
-        if hasattr(builtins, attr):
-            delattr(builtins, attr)
     tasks.clear()  # must to this to enable resetting all_jobs
 
 

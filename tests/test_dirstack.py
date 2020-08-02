@@ -19,8 +19,10 @@ PARENT = os.path.dirname(HERE)
 def chdir(adir):
     old_dir = os.getcwd()
     os.chdir(adir)
-    yield
-    os.chdir(old_dir)
+    try:
+        yield
+    finally:
+        os.chdir(old_dir)
 
 
 def test_simple(xonsh_builtins):
