@@ -12,7 +12,7 @@ from xonsh.completers.python import (
     complete_import,
     complete_python_mode,
 )
-from xonsh.completers.commands import complete_skipper
+from xonsh.completers.commands import complete_skipper, complete_end_proc_tokens
 from xonsh.completers.completer import complete_completer
 from xonsh.completers.xompletions import complete_xonfig, complete_xontrib
 
@@ -25,6 +25,7 @@ def default_completers():
             ("base", complete_base),
             ("completer", complete_completer),
             ("skip", complete_skipper),
+            ("end_proc_tokens", complete_end_proc_tokens),
             ("pip", complete_pip),
             ("cd", complete_cd),
             ("rmdir", complete_rmdir),
