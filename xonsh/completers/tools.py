@@ -1,9 +1,10 @@
 """Xonsh completer tools."""
 import builtins
 import textwrap
-from typing import Callable, Optional, Set, Union
+from functools import wraps
+from typing import Callable, Optional, Set, Union, Tuple
 
-from xonsh.parsers.completion_context import CompletionContext
+from xonsh.parsers.completion_context import CompletionContext, CommandContext
 
 
 def _filter_normal(s, x):
@@ -88,7 +89,8 @@ def get_ptk_completer():
 
 
 Completion = Union[RichCompletion, str]
-ContextualCompleter = Callable[[CompletionContext], Optional[Set[Completion]]]
+CompleterResult = Union[Set[Completion], Tuple[Set[Completion], int], None]
+ContextualCompleter = Callable[[CompletionContext], CompleterResult]
 
 
 def contextual_completer(func: ContextualCompleter):
@@ -105,3 +107,17 @@ def contextual_completer(func: ContextualCompleter):
 
 def is_contextual_completer(func):
     return getattr(func, "contextual", False)
+
+
+def contextual_command_completer(func: Callable[[CommandContext], CompleterResult]):
+    """like ``contextual_completer``,
+    but will only run when completing a command and will directly receive the ``CommandContext`` object"""
+
+    @contextual_completer
+    @wraps(func)
+    def _completer(context: CompletionContext) -> CompleterResult:
+        if context.command is not None:
+            return func(context.command)
+        return None
+
+    return _completer
