@@ -73,6 +73,8 @@ STRING_ARGS_EXAMPLES = (
         args=(), arg_index=0, prefix="comm an", suffix="d", opening_quote="'", closing_quote="'")),
     (f"'comm and{X}'", CommandContext(
         args=(), arg_index=0, prefix="comm and", suffix="", opening_quote="'", closing_quote="'")),
+    (f"'comm {X}'", CommandContext(
+        args=(), arg_index=0, prefix="comm ", suffix="", opening_quote="'", closing_quote="'")),
     (f"\"comm an{X}d\"", CommandContext(
         args=(), arg_index=0, prefix="comm an", suffix="d", opening_quote="\"", closing_quote="\"")),
     (f"'''comm an{X}d'''", CommandContext(
@@ -199,6 +201,20 @@ def test_malformed_subcmd(nesting, commandline, context, malformation):
     nested_commandline = nesting.replace(X, commandline)
     nested_commandline = malformation(nested_commandline)
     assert_match(nested_commandline, command_context=context, python_context=None)
+
+
+@pytest.mark.parametrize("commandline, context", (
+        (f"echo $(a $(b {X}", CommandContext(args=(CommandArg("b"),), arg_index=1, subcmd_opening="$(")),
+        (f"echo $(a $(b; b {X}", CommandContext(args=(CommandArg("b"),), arg_index=1)),
+        (f"$(echo $(a $(b {X}", CommandContext(args=(CommandArg("b"),), arg_index=1, subcmd_opening="$(")),
+        (f"echo $[a $(b {X}]", CommandContext(args=(CommandArg("b"),), arg_index=1, subcmd_opening="$(")),
+        (f"echo $(a $[b {X})", CommandContext(args=(CommandArg("b"),), arg_index=1, subcmd_opening="$[")),
+        (f"echo @(x = $(b {X}", CommandContext(args=(CommandArg("b"),), arg_index=1, subcmd_opening="$(")),
+        (f"echo @(a; x = $(b {X}", CommandContext(args=(CommandArg("b"),), arg_index=1, subcmd_opening="$(")),
+        (f"echo @(x = $(a; b {X}", CommandContext(args=(CommandArg("b"),), arg_index=1, subcmd_opening="$(")),
+))
+def test_multiple_malformed_subcmds(commandline, context):
+    assert_match(commandline, context)
 
 
 def test_other_subcommand_arg():
@@ -335,6 +351,17 @@ def test_multiple_nested_commands():
     assert_match(f"echo hi; echo $(ls{X})",
                  CommandContext((), 0, prefix="ls", subcmd_opening="$("),
                  python_context=None)
+
+
+@pytest.mark.parametrize("commandline, context", tuple(
+    (commandline, context) for commandline, context in STRING_ARGS_EXAMPLES
+    if commandline.endswith("'") or commandline.endswith('"')
+))
+def test_multiple_partial_string_arg(commandline, context):
+    partial_commandline = commandline.rstrip("\"'")
+    partial_context = context._replace(closing_quote="")
+    assert_match("echo;" + partial_commandline, partial_context)
+    assert_match("echo $(a ;" + partial_commandline, partial_context)
 
 
 @pytest.mark.parametrize("nesting, keyword, commands, context", tuple(
