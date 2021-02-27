@@ -95,35 +95,44 @@ class Completer(object):
                     lprefix = len(prefix)
 
             if res is not None and len(res) != 0:
-                if (
-                    completing_contextual_command
-                    and completion_context.command.is_after_closing_quote
-                ):
-                    """
-                    The cursor is appending to a closed string literal, i.e. cursor at the end of ``ls "/usr/"``.
-                    1. The closing quote will be appended to all completions.
-                       I.e the completion ``/usr/bin`` will turn into ``/usr/bin"``
-                       To prevent this behavior, a completer can return a ``RichCompletion`` with ``append_closing_quote=False``.
-                    2. If not specified, lprefix will cover the closing prefix.
-                       I.e for ``ls "/usr/"``, the default lprefix will be 6 to include the closing quote.
-                       To prevent this behavior, a completer can return a different lprefix or specify it inside ``RichCompletion``.
-                    """
-                    closing_quote = completion_context.command.closing_quote
-                    lprefix += len(closing_quote)
+                if completing_contextual_command:
+                    if completion_context.command.is_after_closing_quote:
+                        # see details in ``Completer.postprocess_completion``
+                        closing_quote = completion_context.command.closing_quote
+                        lprefix += len(closing_quote)
+                    else:
+                        closing_quote = ""
 
-                    def append_closing_quote(completion: Completion):
-                        if isinstance(completion, RichCompletion):
-                            if completion.append_closing_quote:
-                                return completion.replace(
-                                    value=str(completion) + closing_quote
-                                )
-                            return completion
-                        return completion + closing_quote
-
-                    res = map(append_closing_quote, res)
+                    opening_quote = completion_context.command.opening_quote
+                    res = map(lambda comp: self.postprocess_completion(comp, opening_quote, closing_quote), res)
 
                 def sortkey(s):
                     return s.lstrip(''''"''').lower()
 
                 return tuple(sorted(res, key=sortkey)), lprefix
         return set(), lprefix
+
+    def postprocess_completion(self, completion: Completion, opening_quote: str, closing_quote: str) -> Completion:
+        """
+        Postprocess a contextual completion. Handles the following scenarios:
+
+        * The cursor is appending to a closed string literal, e.g. cursor at the end of ``ls "/usr/"``.
+            1. The closing quote will be appended to all completions.
+                I.e the completion ``/usr/bin`` will turn into ``/usr/bin"``
+                To prevent this behavior, a completer can return a ``RichCompletion`` with ``append_closing_quote=False``.
+            2. If not specified, lprefix will cover the closing prefix.
+                I.e for ``ls "/usr/"``, the default lprefix will be 6 to include the closing quote.
+                To prevent this behavior, a completer can return a different lprefix or specify it inside ``RichCompletion``.
+
+        * Add a quote to the completion if needed, for example if it contains whitespace.
+        """
+        value = str(completion)
+        if closing_quote:
+            value += closing_quote
+        
+
+
+        is_rich_completion = isinstance(completion, RichCompletion)
+        if isinstance(completion, RichCompletion):
+            return completion.replace(value=value)
+        return value
